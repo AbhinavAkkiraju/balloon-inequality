@@ -1,0 +1,14 @@
+# Core dependencies - required for app functionality
+streamlit==1.32.0
+pandas==2.2.0
+numpy==1.26.4
+
+# Data visualization - pydeck for interactive maps
+pydeck==0.9.1
+
+# Statistical analysis - scipy for Gini coefficient
+scipy==1.12.0
+
+# Data fetching - requests for API calls
+requests==2.31.0
+
