@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Configure page settings
 st.set_page_config(
     page_title="Can the Sky Reveal Global Inequality?",
-    page_icon="🎈",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -34,9 +34,7 @@ def load_balloon_data():
         
         if len(balloon_data) > 0:
             if len(balloon_data) == 500:
-                st.warning("⚠️ Using mock balloon data for demonstration (Windborne API unavailable)")
-            else:
-                st.success(f"✓ Loaded {len(balloon_data)} balloon observations from API")
+                st.warning("Using mock balloon data for demonstration (Windborne API unavailable)")
         return balloon_data
     except Exception as e:
         st.error(f"Failed to load balloon data: {e}")
@@ -50,7 +48,6 @@ def load_station_data():
     try:
         with st.spinner("Loading weather station data..."):
             station_data = stations.fetch_station_metadata()
-        st.success(f"✓ Loaded {len(station_data)} weather stations")
         return station_data
     except Exception as e:
         st.error(f"Failed to load station data: {e}")
@@ -72,9 +69,9 @@ def main():
     regions where weather stations are sparse or nonexistent, potentially revealing 
     global inequalities in meteorological infrastructure.
     
-    **🎈 Balloons** float through the atmosphere collecting data in under-observed regions  
-    **📍 Stations** are fixed ground installations, often concentrated in wealthy nations  
-    **🔥 Heatmap** shows where balloons fill critical gaps in station coverage
+    **Balloons** float through the atmosphere collecting data in under-observed regions  
+    **Stations** are fixed ground installations, often concentrated in wealthy nations  
+    **Heatmap** shows where balloons fill critical gaps in station coverage
     """)
     
     # Load data
@@ -83,7 +80,7 @@ def main():
         station_data = load_station_data()
     
     if balloon_data.empty and station_data.empty:
-        st.error("⚠️ No data available. Please check your internet connection and try again.")
+        st.error("No data available. Please check your internet connection and try again.")
         return
     
     # Compute coverage comparison
@@ -95,10 +92,10 @@ def main():
         )
     
     # Sidebar controls
-    st.sidebar.header("🎛️ Visualization Controls")
+    st.sidebar.header("Visualization Controls")
     
     # Educational narrative
-    with st.sidebar.expander("📖 Understanding the Data", expanded=False):
+    with st.sidebar.expander("Understanding the Data", expanded=False):
         st.markdown("""
         **What the Balloons Measure**
         
@@ -174,7 +171,7 @@ def main():
         filtered_comparison = coverage_comparison.copy()
     
     # Display map
-    st.subheader("🌍 Global Coverage Map - Land Areas")
+    st.subheader("Global Coverage Map - Land Areas")
     
     # Create the map
     map_layers = create_map_layers(
@@ -346,7 +343,7 @@ def create_map_layers(balloon_data, station_data, coverage_comparison,
 
 def display_statistics(balloon_data, station_data, coverage_comparison):
     """Display summary statistics."""
-    st.subheader("📊 Summary Statistics")
+    st.subheader("Summary Statistics")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -385,7 +382,7 @@ def display_statistics(balloon_data, station_data, coverage_comparison):
 
 def display_high_gap_regions(balloon_data, station_data, coverage_comparison):
     """Display top regions where balloons fill critical gaps."""
-    st.subheader("🎯 Top Regions Where Balloons Fill Coverage Gaps")
+    st.subheader("Top Regions Where Balloons Fill Coverage Gaps")
     
     st.markdown("""
     These regions have high **population-weighted observation gap scores**, meaning balloons 
@@ -487,7 +484,7 @@ def display_high_gap_regions(balloon_data, station_data, coverage_comparison):
 
 def display_inequality_metrics(coverage_comparison):
     """Display inequality metrics and analysis."""
-    st.subheader("📈 Global Inequality Metrics")
+    st.subheader("Global Inequality Metrics")
     
     st.markdown("""
     The **Gini coefficient** measures inequality in distribution (0 = perfect equality, 1 = perfect inequality).
@@ -520,7 +517,7 @@ def display_inequality_metrics(coverage_comparison):
         )
     
     # Additional metrics
-    with st.expander("📋 Detailed Coverage Statistics"):
+    with st.expander("Detailed Coverage Statistics"):
         col1, col2 = st.columns(2)
         
         with col1:
@@ -539,11 +536,10 @@ def display_inequality_metrics(coverage_comparison):
 
 def display_conclusion():
     """Display concluding narrative about climate equity."""
-    st.subheader("🌍 Why High-Altitude Sensing Matters for Climate Equity")
+    st.subheader("Why High-Altitude Sensing Matters for Climate Equity")
     
     st.markdown("""
-    The unequal distribution of weather observations is not merely a technical problem—it 
-    directly impacts global climate science, weather forecasting accuracy, and disaster 
+    The unequal distribution of weather observations directly impacts global climate science, weather forecasting accuracy, and disaster 
     preparedness. When regions lack observational infrastructure, they become:
     
     - **Data Deserts**: Absent from global atmospheric models, reducing forecast accuracy 
@@ -555,7 +551,7 @@ def display_conclusion():
     
     High-altitude balloon sensing technologies offer a path toward more equitable atmospheric 
     observation. By accessing previously under-sampled regions—remote areas, oceans, and 
-    underinvested nations—these platforms can help democratize access to the atmospheric 
+    underinvested nations. These platforms can help democratize access to the atmospheric 
     data that underpins weather forecasts, climate models, and environmental policy.
     
     **The Path Forward**: Achieving truly global atmospheric monitoring requires both expanded 
@@ -563,8 +559,7 @@ def display_conclusion():
     Balloons, drones, and satellite systems each play a role in filling observational gaps, 
     ensuring that all regions contribute to—and benefit from—global atmospheric science.
     
-    Climate change is a global phenomenon. Understanding it requires global data. Equity in 
-    observation is not just about fairness—it's about scientific necessity.
+    Climate change is a global phenomenon and understanding it requires equitable global data.
     """)
     
     # Add a subtle call to action
