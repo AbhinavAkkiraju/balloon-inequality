@@ -91,6 +91,12 @@ def main():
             grid_size=2.0
         )
     
+    # Calculate global equality score
+    equality_metrics = analysis.calculate_global_equality_score(coverage_comparison)
+    
+    # Display prominent equality score
+    display_equality_score(equality_metrics)
+    
     # Sidebar controls
     st.sidebar.header("Visualization Controls")
     
@@ -212,11 +218,20 @@ def main():
     # Display statistics
     display_statistics(filtered_balloons, station_data, filtered_comparison)
     
+    # Display population impact
+    display_population_impact(filtered_comparison)
+    
+    # Display balloon-critical regions breakdown
+    display_balloon_critical_regions(filtered_comparison)
+    
     # Display high-gap regions
     display_high_gap_regions(balloon_data, station_data, filtered_comparison)
     
     # Display inequality metrics
     display_inequality_metrics(filtered_comparison)
+    
+    # Display country comparison tool
+    display_country_comparison(filtered_comparison)
     
     # Concluding narrative
     display_conclusion()
@@ -341,6 +356,282 @@ def create_map_layers(balloon_data, station_data, coverage_comparison,
     return layers
 
 
+def display_equality_score(equality_metrics):
+    """Display the global coverage equality score prominently."""
+    st.markdown("---")
+    st.subheader("Global Coverage Equality Score")
+    
+    col1, col2, col3 = st.columns([2, 1, 2])
+    
+    with col1:
+        score = equality_metrics['score']
+        grade = equality_metrics['grade']
+        
+        # Create a color based on score
+        if score >= 70:
+            color = "green"
+        elif score >= 50:
+            color = "orange"
+        else:
+            color = "red"
+        
+        st.markdown(f"""
+        <div style="text-align: center; padding: 20px; background-color: rgba(0,0,0,0.05); border-radius: 10px;">
+            <h1 style="color: {color}; font-size: 72px; margin: 0;">{score:.1f}</h1>
+            <h2 style="margin: 5px 0; color: {color};">{grade}</h2>
+            <p style="font-size: 18px; color: #666;">{equality_metrics['interpretation']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("<div style='margin-top: 40px;'>", unsafe_allow_html=True)
+        st.markdown("**Score of 100** = Perfect equality")
+        st.markdown("**Score of 0** = Complete inequality")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("**What this means:**")
+        components = equality_metrics['components']
+        pop_impact = equality_metrics['population_impact']
+        
+        st.metric("Distribution Equality", f"{components['gini_score']:.1f}/100")
+        st.metric("Station Density", f"{components['density_score']:.1f}%")
+        st.metric("People Underserved", f"{pop_impact['underserved_millions']:.0f}M")
+    
+    with st.expander("How is this calculated?"):
+        st.markdown("""
+        The Global Equality Score combines three factors:
+        
+        - **Distribution Equality (20%)**: Based on Gini coefficient - measures how evenly stations are distributed across regions
+        - **Station Density (30%)**: Percentage of regions with good station density (2+ stations per grid cell)
+        - **Coverage Adequacy (50%)**: Percentage of population with adequate coverage (3+ stations or 1+ station with balloon support)
+        
+        A high score means most people have access to quality weather observations. A low score indicates 
+        severe inequality where many populated regions lack adequate meteorological infrastructure.
+        
+        **Current thresholds:**
+        - Adequate coverage requires 3+ weather stations OR 1+ station with 3+ balloon observations
+        - This is a realistic bar - a 2° × 2° grid cell (~500km × 500km) needs multiple stations for quality data
+        """)
+    
+    st.markdown("---")
+
+
+def display_population_impact(coverage_comparison):
+    """Display population impact analysis."""
+    st.subheader("Population Impact Analysis")
+    
+    st.markdown("""
+    Understanding who is affected by data gaps is crucial. This analysis categorizes global population 
+    by the quality of weather observation coverage in their region.
+    
+    **Coverage Levels:**
+    - **Good**: 4+ weather stations (dense network)
+    - **Adequate**: 2-3 stations or 1 station + balloon support
+    - **Poor**: Only 1 station or only balloon observations (no permanent infrastructure)
+    - **None**: No observations at all
+    """)
+    
+    pop_impact = analysis.calculate_population_impact(coverage_comparison)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Total Population Analyzed",
+            f"{pop_impact['total_population']:.0f}M",
+            help="Population in grid cells with country data"
+        )
+    
+    with col2:
+        st.metric(
+            "Underserved Population",
+            f"{pop_impact['underserved_total']:.0f}M",
+            delta=f"-{pop_impact['percentages']['underserved_pct']:.0f}%",
+            delta_color="inverse",
+            help="People with no coverage or poor coverage (inadequate for reliable forecasting)"
+        )
+    
+    with col3:
+        st.metric(
+            "Balloon-Critical Regions",
+            f"{pop_impact['balloon_critical']:.0f}M",
+            help="People in regions critically dependent on balloon observations (see details below)"
+        )
+    
+    with col4:
+        st.metric(
+            "Good Coverage",
+            f"{pop_impact['good_coverage']:.0f}M",
+            help="People with 4+ weather stations in their region"
+        )
+    
+    # Create visualization of population distribution by coverage quality
+    if pop_impact['total_population'] > 0:
+        coverage_data = {
+            'Coverage Quality': ['Good (4+ stations)', 'Adequate (2-3 stations)', 'Poor (1 station or balloons only)', 'None'],
+            'Population (Millions)': [
+                pop_impact['good_coverage'],
+                pop_impact['adequate_coverage'],
+                pop_impact['poor_coverage'],
+                pop_impact['no_coverage']
+            ],
+            'Percentage': [
+                pop_impact['percentages']['good_coverage_pct'],
+                pop_impact['percentages']['adequate_coverage_pct'],
+                pop_impact['percentages']['poor_coverage_pct'],
+                pop_impact['percentages']['no_coverage_pct']
+            ]
+        }
+        
+        df = pd.DataFrame(coverage_data)
+        df = df[df['Population (Millions)'] > 0]  # Only show non-zero categories
+        
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Population (Millions)": st.column_config.NumberColumn(
+                    "Population (Millions)",
+                    format="%.1f"
+                ),
+                "Percentage": st.column_config.NumberColumn(
+                    "Percentage",
+                    format="%.1f%%"
+                )
+            }
+        )
+        
+        # Key insights
+        underserved_pct = pop_impact['percentages']['underserved_pct']
+        balloon_critical_pct = pop_impact['percentages']['balloon_critical_pct']
+        balloon_only_pct = pop_impact['percentages']['balloon_only_pct']
+        
+        if underserved_pct > 50:
+            st.warning(
+                f"**Critical Inequality**: {pop_impact['underserved_total']:.0f} million people "
+                f"({underserved_pct:.0f}%) live in regions with inadequate weather observation infrastructure."
+            )
+        
+        if balloon_critical_pct > 1:
+            st.info(
+                f"**Windborne's Critical Role**: {pop_impact['balloon_critical']:.0f} million people "
+                f"({balloon_critical_pct:.1f}%) live in balloon-critical regions.\n\n"
+                f"This includes:\n"
+                f"- **{pop_impact['balloon_only']:.0f}M people ({balloon_only_pct:.1f}%)** with ONLY balloon observations (zero stations)\n"
+                f"- Regions where balloons outnumber stations by 5:1 or more\n"
+                f"- Areas with severe station gaps where balloons provide the majority of atmospheric data\n\n"
+                f"Without balloon technology, these populations would have severely compromised or zero weather forecasting capability."
+            )
+        
+        with st.expander("What makes a region 'balloon-critical'?"):
+            st.markdown("""
+            A region is considered **balloon-critical** if it meets any of these criteria:
+            
+            1. **Zero permanent infrastructure**: No weather stations, only balloon observations
+            2. **Severe imbalance**: Balloons outnumber stations by 5:1 or more  
+               (e.g., 1 station but 20 balloon observations)
+            3. **High observation gap score**: Score > 3.0, indicating balloons are providing 
+               the vast majority of atmospheric data despite some station presence
+            
+            These regions critically depend on mobile sensing technology. While they may technically 
+            have "some" station coverage, it's so sparse that balloons are doing the heavy lifting 
+            for weather observations. Losing balloon coverage would devastate forecast quality.
+            
+            **Example**: A 500km × 500km region with 1 aging weather station and 15 balloon 
+            observations is balloon-critical. That single station cannot adequately cover such 
+            a large area - the balloons are essential for spatial coverage and data density.
+            """)
+
+
+def display_country_comparison(coverage_comparison):
+    """Display interactive country comparison tool."""
+    st.subheader("Country Comparison Tool")
+    
+    st.markdown("""
+    Compare weather observation coverage between any two countries to see disparities 
+    in meteorological infrastructure.
+    """)
+    
+    # Get list of countries from coverage data
+    all_countries = set()
+    for codes in coverage_comparison['country_codes'].dropna():
+        if codes != 'Unknown/Ocean':
+            for code in codes.split(','):
+                code = code.strip()
+                if code in analysis.COUNTRY_NAMES:
+                    all_countries.add(code)
+    
+    country_options = {analysis.COUNTRY_NAMES[code]: code for code in sorted(all_countries)}
+    
+    if len(country_options) < 2:
+        st.warning("Not enough countries in dataset for comparison.")
+        return
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        country1_name = st.selectbox(
+            "Select first country",
+            options=sorted(country_options.keys()),
+            index=list(country_options.keys()).index('USA') if 'USA' in country_options else 0
+        )
+    
+    with col2:
+        country2_name = st.selectbox(
+            "Select second country",
+            options=sorted(country_options.keys()),
+            index=list(country_options.keys()).index('Nigeria') if 'Nigeria' in country_options else 1
+        )
+    
+    country1_code = country_options[country1_name]
+    country2_code = country_options[country2_name]
+    
+    # Perform comparison
+    comparison = analysis.compare_countries(coverage_comparison, country1_code, country2_code)
+    
+    # Display results
+    col1, col2, col3 = st.columns([5, 1, 5])
+    
+    with col1:
+        st.markdown(f"### {comparison['country1']['name']}")
+        st.metric("Weather Stations", f"{comparison['country1']['stations']:,}")
+        st.metric("Balloon Observations", f"{comparison['country1']['balloons']:,}")
+        st.metric("Population", f"{comparison['country1']['population']:.0f}M")
+        st.metric("Stations per Million", f"{comparison['country1']['stations_per_million']:.1f}")
+        st.markdown(f"**Coverage Quality:** {comparison['country1']['coverage_quality']}")
+    
+    with col2:
+        st.markdown("<div style='text-align: center; margin-top: 80px; font-size: 36px;'>vs</div>", unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"### {comparison['country2']['name']}")
+        st.metric("Weather Stations", f"{comparison['country2']['stations']:,}")
+        st.metric("Balloon Observations", f"{comparison['country2']['balloons']:,}")
+        st.metric("Population", f"{comparison['country2']['population']:.0f}M")
+        st.metric("Stations per Million", f"{comparison['country2']['stations_per_million']:.1f}")
+        st.markdown(f"**Coverage Quality:** {comparison['country2']['coverage_quality']}")
+    
+    # Analysis
+    st.markdown("### Analysis")
+    better = comparison['comparison']['better_covered']
+    st.markdown(f"**{better}** has better traditional weather station coverage.")
+    
+    if comparison['country1']['stations'] > 0 and comparison['country2']['stations'] > 0:
+        ratio = comparison['comparison']['station_ratio']
+        if ratio > 1:
+            st.markdown(
+                f"{comparison['country1']['name']} has {ratio:.1f}x more weather stations than "
+                f"{comparison['country2']['name']}."
+            )
+        else:
+            st.markdown(
+                f"{comparison['country2']['name']} has {1/ratio:.1f}x more weather stations than "
+                f"{comparison['country1']['name']}."
+            )
+
+
 def display_statistics(balloon_data, station_data, coverage_comparison):
     """Display summary statistics."""
     st.subheader("Summary Statistics")
@@ -377,6 +668,122 @@ def display_statistics(balloon_data, station_data, coverage_comparison):
             "New Coverage",
             f"{improvement['new_cells_from_balloons']:,}",
             help="Grid cells covered only by balloons (no stations)"
+        )
+
+
+def display_balloon_critical_regions(coverage_comparison):
+    """Display breakdown of balloon-critical regions."""
+    st.subheader("Balloon-Critical Regions: Examples")
+    
+    st.markdown("""
+    These are specific regions where balloon observations are critically important, 
+    showing the ratio of balloons to stations and why these areas depend on mobile sensing.
+    """)
+    
+    # Filter to balloon-critical regions
+    land_cells = coverage_comparison[coverage_comparison['country_codes'] != 'Unknown/Ocean'].copy()
+    
+    # Mark balloon-critical regions (same logic as in analysis.py)
+    land_cells['balloon_critical_flag'] = (
+        ((land_cells['station_count'] == 0) & (land_cells['balloon_count'] > 0)) |
+        ((land_cells['station_count'] > 0) & 
+         (land_cells['balloon_count'] >= land_cells['station_count'] * 5)) |
+        (land_cells['observation_gap_score'] > 3.0)
+    )
+    
+    critical_regions = land_cells[land_cells['balloon_critical_flag']].copy()
+    
+    if critical_regions.empty:
+        st.info("No balloon-critical regions identified in current data.")
+        return
+    
+    # Add categorization
+    def categorize_criticality(row):
+        if row['station_count'] == 0:
+            return "Zero stations"
+        elif row['balloon_count'] >= row['station_count'] * 5:
+            return "5:1+ balloon ratio"
+        else:
+            return "High gap score"
+    
+    critical_regions['criticality_type'] = critical_regions.apply(categorize_criticality, axis=1)
+    
+    # Sort by population impact
+    critical_regions = critical_regions.nlargest(15, 'population_weighted_gap_score')
+    
+    # Prepare display
+    display_df = critical_regions[[
+        'grid_lat', 'grid_lon', 'balloon_count', 'station_count', 
+        'observation_gap_score', 'estimated_population_millions', 
+        'criticality_type', 'country_names'
+    ]].copy()
+    
+    # Calculate balloon:station ratio
+    display_df['ratio'] = display_df.apply(
+        lambda row: f"{row['balloon_count']}:0" if row['station_count'] == 0 
+        else f"{row['balloon_count']}:{row['station_count']}", 
+        axis=1
+    )
+    
+    display_df.columns = [
+        'Latitude', 'Longitude', 'Balloons', 'Stations', 
+        'Gap Score', 'Population (M)', 'Why Critical', 'Countries', 'Balloon:Station'
+    ]
+    
+    st.dataframe(
+        display_df[['Countries', 'Balloons', 'Stations', 'Balloon:Station', 
+                    'Gap Score', 'Population (M)', 'Why Critical', 'Latitude', 'Longitude']],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Gap Score": st.column_config.NumberColumn(
+                "Gap Score",
+                format="%.2f",
+                help="Higher = more balloon-dependent"
+            ),
+            "Population (M)": st.column_config.NumberColumn(
+                "Population (M)",
+                format="%.1f"
+            ),
+            "Latitude": st.column_config.NumberColumn(
+                "Latitude",
+                format="%.2f°"
+            ),
+            "Longitude": st.column_config.NumberColumn(
+                "Longitude",
+                format="%.2f°"
+            )
+        }
+    )
+    
+    # Summary stats
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        zero_station_count = (critical_regions['station_count'] == 0).sum()
+        st.metric(
+            "Regions with Zero Stations",
+            zero_station_count,
+            help="Completely dependent on balloons"
+        )
+    
+    with col2:
+        high_ratio_count = (
+            (critical_regions['station_count'] > 0) & 
+            (critical_regions['balloon_count'] >= critical_regions['station_count'] * 5)
+        ).sum()
+        st.metric(
+            "Severe Imbalance (5:1+)",
+            high_ratio_count,
+            help="Balloons outnumber stations by 5x or more"
+        )
+    
+    with col3:
+        total_pop_critical = critical_regions['estimated_population_millions'].sum()
+        st.metric(
+            "People in These Regions",
+            f"{total_pop_critical:.0f}M",
+            help="Population in shown balloon-critical regions"
         )
 
 

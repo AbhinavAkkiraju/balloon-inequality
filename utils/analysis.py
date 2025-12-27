@@ -421,3 +421,264 @@ def create_summary_report(balloon_data: pd.DataFrame,
     }
     
     return report
+
+
+def calculate_global_equality_score(coverage_comparison: pd.DataFrame) -> Dict:
+    """
+    Calculate a comprehensive global equality score (0-100).
+    
+    Higher scores indicate more equal distribution of weather observations globally.
+    Considers: Gini coefficient, station density inequality, coverage adequacy.
+    """
+    if coverage_comparison.empty:
+        return {
+            'score': 0, 'grade': 'F', 'interpretation': 'No data',
+            'components': {'gini_score': 0, 'density_score': 0, 'adequacy_score': 0},
+            'population_impact': {
+                'total_population_millions': 0,
+                'adequately_covered_millions': 0,
+                'underserved_millions': 0
+            }
+        }
+    
+    land_cells = coverage_comparison[coverage_comparison['country_codes'] != 'Unknown/Ocean'].copy()
+    
+    if land_cells.empty:
+        return {
+            'score': 0, 'grade': 'F', 'interpretation': 'No data',
+            'components': {'gini_score': 0, 'density_score': 0, 'adequacy_score': 0},
+            'population_impact': {
+                'total_population_millions': 0,
+                'adequately_covered_millions': 0,
+                'underserved_millions': 0
+            }
+        }
+    
+    # Calculate component scores
+    gini_stations = calculate_gini_coefficient(land_cells, 'station_count')
+    
+    # Invert Gini (0 = perfect inequality, 1 = perfect equality)
+    gini_score = (1 - gini_stations) * 100
+    
+    # Calculate station density score
+    # Good coverage = at least 2 stations per grid cell (2° × 2° = ~500km × 500km)
+    # Reality check: most cells have 0-1 stations, which is poor coverage
+    cells_with_good_coverage = (land_cells['station_count'] >= 2).sum()
+    density_score = (cells_with_good_coverage / len(land_cells) * 100)
+    
+    # Calculate adequacy score based on realistic thresholds
+    # Adequate = at least 3 stations OR (1+ station AND 3+ balloon observations)
+    # This is a high bar, as it should be
+    land_cells['adequate_coverage'] = (
+        (land_cells['station_count'] >= 3) | 
+        ((land_cells['station_count'] >= 1) & (land_cells['balloon_count'] >= 3))
+    )
+    
+    # Calculate population estimates (more realistic approach)
+    # Assume uniform population distribution within each country across its grid cells
+    total_global_pop = sum(COUNTRY_POPULATIONS.values())
+    
+    # For population impact, we need to account for ALL land area, not just cells with data
+    # Approximate: use actual population in cells vs total population possible
+    cells_with_data_pop = land_cells['estimated_population_millions'].sum()
+    
+    # More realistic: many populated areas have NO stations
+    adequately_covered_pop = land_cells[land_cells['adequate_coverage']]['estimated_population_millions'].sum()
+    
+    # Adequacy score based on population
+    adequacy_score = (adequately_covered_pop / cells_with_data_pop * 100) if cells_with_data_pop > 0 else 0
+    
+    # Composite score (weighted average emphasizing adequacy)
+    # Gini shows distribution inequality, density shows coverage gaps, adequacy shows quality
+    score = (gini_score * 0.2) + (density_score * 0.3) + (adequacy_score * 0.5)
+    
+    # Assign grade
+    if score >= 80:
+        grade = 'A'
+        interpretation = 'Very good equality'
+    elif score >= 70:
+        grade = 'B'
+        interpretation = 'Good equality'
+    elif score >= 60:
+        grade = 'C'
+        interpretation = 'Moderate inequality'
+    elif score >= 50:
+        grade = 'D'
+        interpretation = 'Significant inequality'
+    elif score >= 40:
+        grade = 'E'
+        interpretation = 'Severe inequality'
+    else:
+        grade = 'F'
+        interpretation = 'Critical inequality'
+    
+    return {
+        'score': float(score),
+        'grade': grade,
+        'interpretation': interpretation,
+        'components': {
+            'gini_score': float(gini_score),
+            'density_score': float(density_score),
+            'adequacy_score': float(adequacy_score)
+        },
+        'population_impact': {
+            'total_population_millions': float(cells_with_data_pop),
+            'adequately_covered_millions': float(adequately_covered_pop),
+            'underserved_millions': float(cells_with_data_pop - adequately_covered_pop)
+        }
+    }
+
+
+def calculate_population_impact(coverage_comparison: pd.DataFrame) -> Dict:
+    """Calculate detailed population impact metrics with realistic categorization."""
+    land_cells = coverage_comparison[coverage_comparison['country_codes'] != 'Unknown/Ocean'].copy()
+    
+    if land_cells.empty:
+        return {
+            'total_population': 0,
+            'no_coverage': 0,
+            'poor_coverage': 0,
+            'adequate_coverage': 0,
+            'good_coverage': 0,
+            'balloon_critical': 0
+        }
+    
+    # Define coverage quality levels more realistically
+    # No coverage: 0 stations and 0 balloons
+    no_coverage = land_cells[
+        (land_cells['station_count'] == 0) & (land_cells['balloon_count'] == 0)
+    ]['estimated_population_millions'].sum()
+    
+    # Poor coverage: Only 1 station OR only balloons (no permanent infrastructure)
+    poor_coverage = land_cells[
+        ((land_cells['station_count'] == 1) & (land_cells['balloon_count'] == 0)) |
+        ((land_cells['station_count'] == 0) & (land_cells['balloon_count'] > 0))
+    ]['estimated_population_millions'].sum()
+    
+    # Adequate coverage: 2-3 stations OR 1 station + balloons
+    adequate_coverage = land_cells[
+        ((land_cells['station_count'] >= 2) & (land_cells['station_count'] < 4)) |
+        ((land_cells['station_count'] == 1) & (land_cells['balloon_count'] > 0))
+    ]['estimated_population_millions'].sum()
+    
+    # Good coverage: 4+ stations
+    good_coverage = land_cells[
+        land_cells['station_count'] >= 4
+    ]['estimated_population_millions'].sum()
+    
+    # Balloon critical: Areas where balloons are critically important
+    # This includes:
+    # 1. Areas with ONLY balloon observations (no stations)
+    # 2. Areas where balloons dramatically outnumber stations (5:1 ratio or higher)
+    # 3. Areas with very high observation gap scores (> 3.0), indicating heavy balloon reliance
+    land_cells['balloon_critical_flag'] = (
+        # Case 1: Only balloons, no stations
+        ((land_cells['station_count'] == 0) & (land_cells['balloon_count'] > 0)) |
+        # Case 2: Balloons outnumber stations by 5:1 or more
+        ((land_cells['station_count'] > 0) & 
+         (land_cells['balloon_count'] >= land_cells['station_count'] * 5)) |
+        # Case 3: Very high gap score (balloons doing most of the work)
+        (land_cells['observation_gap_score'] > 3.0)
+    )
+    
+    balloon_critical = land_cells[
+        land_cells['balloon_critical_flag']
+    ]['estimated_population_millions'].sum()
+    
+    # Also track "balloon only" separately for comparison
+    balloon_only = land_cells[
+        (land_cells['station_count'] == 0) & (land_cells['balloon_count'] > 0)
+    ]['estimated_population_millions'].sum()
+    
+    # High gap regions: Balloons significantly outnumber stations
+    high_gap = land_cells[
+        land_cells['observation_gap_score'] > 2.0
+    ]['estimated_population_millions'].sum()
+    
+    total = land_cells['estimated_population_millions'].sum()
+    
+    # Calculate underserved (no coverage + poor coverage)
+    underserved = no_coverage + poor_coverage
+    
+    return {
+        'total_population': float(total),
+        'no_coverage': float(no_coverage),
+        'poor_coverage': float(poor_coverage),
+        'adequate_coverage': float(adequate_coverage),
+        'good_coverage': float(good_coverage),
+        'balloon_critical': float(balloon_critical),
+        'balloon_only': float(balloon_only),
+        'high_gap_regions': float(high_gap),
+        'underserved_total': float(underserved),
+        'percentages': {
+            'no_coverage_pct': float(no_coverage / total * 100) if total > 0 else 0,
+            'poor_coverage_pct': float(poor_coverage / total * 100) if total > 0 else 0,
+            'adequate_coverage_pct': float(adequate_coverage / total * 100) if total > 0 else 0,
+            'good_coverage_pct': float(good_coverage / total * 100) if total > 0 else 0,
+            'underserved_pct': float(underserved / total * 100) if total > 0 else 0,
+            'balloon_critical_pct': float(balloon_critical / total * 100) if total > 0 else 0,
+            'balloon_only_pct': float(balloon_only / total * 100) if total > 0 else 0
+        }
+    }
+
+
+def compare_countries(coverage_comparison: pd.DataFrame,
+                     country_code1: str,
+                     country_code2: str) -> Dict:
+    """Compare coverage metrics between two countries."""
+    
+    def get_country_metrics(code: str) -> Dict:
+        country_cells = coverage_comparison[
+            coverage_comparison['country_codes'].str.contains(code, na=False, regex=False)
+        ]
+        
+        if country_cells.empty:
+            return {
+                'name': COUNTRY_NAMES.get(code, code),
+                'cells': 0,
+                'stations': 0,
+                'balloons': 0,
+                'population': 0,
+                'avg_gap_score': 0,
+                'coverage_quality': 'No data'
+            }
+        
+        total_stations = int(country_cells['station_count'].sum())
+        total_balloons = int(country_cells['balloon_count'].sum())
+        population = float(country_cells['estimated_population_millions'].sum())
+        avg_gap = float(country_cells['observation_gap_score'].mean())
+        
+        # Determine coverage quality
+        stations_per_million = total_stations / population if population > 0 else 0
+        if stations_per_million > 10:
+            quality = 'Excellent'
+        elif stations_per_million > 5:
+            quality = 'Good'
+        elif stations_per_million > 1:
+            quality = 'Adequate'
+        else:
+            quality = 'Poor'
+        
+        return {
+            'name': COUNTRY_NAMES.get(code, code),
+            'cells': len(country_cells),
+            'stations': total_stations,
+            'balloons': total_balloons,
+            'population': population,
+            'avg_gap_score': avg_gap,
+            'stations_per_million': float(stations_per_million),
+            'coverage_quality': quality
+        }
+    
+    country1 = get_country_metrics(country_code1)
+    country2 = get_country_metrics(country_code2)
+    
+    return {
+        'country1': country1,
+        'country2': country2,
+        'comparison': {
+            'station_ratio': country1['stations'] / country2['stations'] if country2['stations'] > 0 else float('inf'),
+            'balloon_ratio': country1['balloons'] / country2['balloons'] if country2['balloons'] > 0 else float('inf'),
+            'better_covered': country1['name'] if country1['stations_per_million'] > country2['stations_per_million'] else country2['name']
+        }
+    }
